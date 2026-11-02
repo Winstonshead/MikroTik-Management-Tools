@@ -409,7 +409,7 @@ def test_gui_backup_and_commands_run_in_parallel_and_errors_turn_red():
         text = app.lbl_progress.cget("text")
         assert text.startswith("Готово · Бэкап: 12 / 12") and "успешно: 11" in text and "ошибок: 1" in text, text
         assert app.devices["SN5"].failed and "error" in app.tree.item("SN5", "tags")
-        assert app.tree.set("SN5", "Status").startswith("Ошибка бэкапа")
+        assert "Ошибка бэкапа" in app.tree.set("SN5", "Status")   # the time stamp comes first
         assert not app.devices["SN4"].failed and "error" not in app.tree.item("SN4", "tags")
         assert app.tree.set("SN4", "Last Backup") and not app.tree.set("SN5", "Last Backup")
         assert str(app.tree.tag_configure("error", "background")) == M.ERROR_BG
@@ -430,7 +430,7 @@ def test_gui_backup_and_commands_run_in_parallel_and_errors_turn_red():
         app.on_send()
         _wait_job(root, app)
         assert app.lbl_progress.cget("text").startswith("Готово · Команды: 12 / 12")
-        assert app.devices["SN2"].failed and app.tree.set("SN1", "Status") == "Команда выполнена"
+        assert app.devices["SN2"].failed and app.tree.set("SN1", "Status").endswith(": Команда выполнена")
     finally:
         app._on_close()
 
@@ -1716,3 +1716,60 @@ def test_viewer_has_only_the_allowed_controls_and_keeps_its_own_settings():
     assert saved["viewer_settings"]["user"] == "stp" and "network" not in saved["viewer_settings"]
     assert "viewer_ui" in saved and saved["commands"]["commands"]                # the scanner's drafts are kept
     assert not os.path.exists(os.path.join(M.APP_DIR, "logs"))                   # no log files
+
+
+def test_gui_checked_only_filter_shows_ticked_rows_and_hides_unticked():
+    M, tk, root, app = _open()
+    try:
+        for d in _many(4):
+            app._upsert_device(d)
+        _tick(app, "SN2", "SN4")
+        app.var_checked_only.set(True)
+        app._on_filter_change()
+        assert app._visible_iids() == ["SN2", "SN4"]
+        app._tick()
+        assert "показано 2" in app.lbl_counts.cget("text")
+
+        app._toggle_check("SN2")                     # un-ticking hides the row at once
+        assert app._visible_iids() == ["SN4"] and app.checked == {"SN4"}
+        app._toggle_check("SN2")                     # ticking again brings it back
+        assert app._visible_iids() == ["SN2", "SN4"]
+
+        app.toggle_all()                             # every visible row is ticked -> clear them all
+        assert app.checked == set() and app._visible_iids() == []
+
+        app._set_checked("SN3", True)                # a tick given another way is honoured too
+        app._apply_visibility("SN3")
+        assert app._visible_iids() == ["SN3"]
+
+        app._reset_filters()                         # a new scan starts without the filter
+        assert not app.var_checked_only.get()
+        app._relayout()
+        assert len(app._visible_iids()) == 4
+    finally:
+        app._on_close()
+
+
+def test_gui_status_shows_the_moment_it_was_recorded():
+    import re
+    from core import Device
+    M, tk, root, app = _open()
+    try:
+        app._upsert_device(Device(ip="10.9.9.9", key="SN9", status="OK"))   # no stamp: bare text
+        assert app.tree.set("SN9", "Status") == "OK"
+
+        app._set_status("SN9", "Команда выполнена", False)
+        cell = app.tree.set("SN9", "Status")
+        assert re.match(r"^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}: Команда выполнена$", cell), cell
+        assert app.devices["SN9"].status == "Команда выполнена"    # bare inside: filters/CSV unaffected
+
+        app._baselines = {}                                        # a scan result is stamped too
+        app._accept_polled(Device(ip="10.20.44.209", key="SN1", identity="R1", status="OK (API-SSL:8729)"))
+        assert re.match(r"^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}: OK \(API-SSL:8729\)$",
+                        app.tree.set("SN1", "Status"))
+
+        app._save_devices()                                        # the stamp is kept in the cache
+        rows = {r["key"]: r for r in _saved(M, "devices")}
+        assert rows["SN9"]["status_time"] and rows["SN1"]["status_time"]
+    finally:
+        app._on_close()

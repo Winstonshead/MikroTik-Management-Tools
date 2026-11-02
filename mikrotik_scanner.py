@@ -86,9 +86,10 @@ CSV_ALIASES = {**{v: k for k, v in HEADINGS.items()}, **{k: k for k in DATA_COLU
                "Mgmt IP": "Mgmt IP", MGMT_HEADING: "Mgmt IP"}
 # default column widths, in characters of the current font (so they fit any font/DPI)
 DEFAULT_CHARS = {"IP": 14, "Identity": 18, "Board Name": 13, "RouterOS": 10, "License": 7,
-                 "Last seen": 19, "Last Backup": 19, "Status": 18, "winbox": 8, "Note": 26,
+                 "Last seen": 19, "Last Backup": 19, "Status": 42, "winbox": 8, "Note": 26,
                  "signal": 24, "ping": 9, "router_id": 14, "radio_name": 16}
 TIME_FORMAT = core.TIME_FORMAT
+STATUS_TIME_FORMAT = "%Y.%m.%d %H:%M:%S"  # the moment a status was recorded, shown before its text
 WINBOX_LABEL = "▶ Winbox"  # per-row launcher
 MAX_OPS_THREADS = 10  # Backup / SEND run this many devices at once at most
 EMPTY_MODEL = "(пусто)"  # devices whose model (Board Name) could not be read
@@ -173,6 +174,7 @@ class ScannerApp:
         self.var_favorites = BooleanVar(value=False)
         self.var_confirmed = BooleanVar(value=False)
         self.var_new_only = BooleanVar(value=False)
+        self.var_checked_only = BooleanVar(value=False)
         self.var_radio_name_show = BooleanVar(value=False)
         self._hidden_columns: set = set()          # columns the operator hid by hand
         self._scan_marks_new = False               # a running scan adds devices to a table that had some
@@ -446,6 +448,7 @@ class ScannerApp:
                         command=self._on_filter_change).pack(side=LEFT, padx=(12, 0))
         for text, var in (("Только с изменениями", self.var_changed_only),
                           ("Новые", self.var_new_only),
+                          ("Отмеченные", self.var_checked_only),
                           ("Избранное", self.var_favorites)):
             ttk.Checkbutton(filters, text=text, variable=var,
                             command=self._on_filter_change).pack(side=LEFT, padx=(12, 0))
@@ -776,8 +779,9 @@ class ScannerApp:
         if dev is None:
             return
         dev.status, dev.failed = text, failed
+        dev.status_time = datetime.now().strftime(STATUS_TIME_FORMAT)
         if self.tree.exists(iid):
-            self.tree.set(iid, "Status", text)
+            self.tree.set(iid, "Status", self._status_cell(dev))
             self.tree.item(iid, tags=self._row_tags(dev))
         self._apply_visibility(iid)
         self._counts_dirty = True
@@ -786,10 +790,18 @@ class ScannerApp:
         font = tkfont.nametofont("TkDefaultFont")
         return max(font.measure("0" * DEFAULT_CHARS[column]), font.measure(HEADINGS[column]) + 30) + 22
 
+    @staticmethod
+    def _status_cell(dev: Device) -> str:
+        """The status with the moment it was recorded in front:
+        «2026.11.02 14:05:15: Команда выполнена». Without a recorded moment (an old
+        cache, a CSV row) just the status text."""
+        return f"{dev.status_time}: {dev.status}" if dev.status_time and dev.status else dev.status
+
     def _row_values(self, dev: Device) -> tuple:
         row = dev.as_row()
         row.update(winbox=WINBOX_LABEL, signal=health.signal_text(dev.radio), ping=dev.ping,
-                   router_id=dev.router_id, radio_name=self._radio_names(dev))
+                   router_id=dev.router_id, radio_name=self._radio_names(dev),
+                   Status=self._status_cell(dev))
         return tuple(row[c] for c in TREE_COLUMNS)
 
     @staticmethod
@@ -848,7 +860,9 @@ class ScannerApp:
                  + macs + [m.replace(":", "") for m in macs] + [m.replace(":", "-") for m in macs])
         return " ".join([row[c] for c in DATA_COLUMNS] + extra).lower()
 
-    def _matches_filter(self, dev: Device) -> bool:
+    def _matches_filter(self, dev: Device, iid: str = "") -> bool:
+        if self.var_checked_only.get() and (iid or dev.key or dev.ip) not in self.checked:
+            return False
         if self._models_sel and self._model_key(dev) not in self._models_sel:
             return False
         if self.var_errors_only.get() and not (health.open_problem(dev, "error")
@@ -895,7 +909,7 @@ class ScannerApp:
         dev = self.devices.get(iid)
         if dev is None or not self.tree.exists(iid):
             return
-        show = self._matches_filter(dev)
+        show = self._matches_filter(dev, iid)
         if show and iid in self._hidden:
             self._relayout()   # puts the row back at its place in the current sort order
         elif not show and iid not in self._hidden:
@@ -935,7 +949,7 @@ class ScannerApp:
     def _relayout(self) -> None:
         """Re-apply the filters and the sort order to the whole table."""
         iids = self._ordered_iids()
-        visible = [i for i in iids if self._matches_filter(self.devices[i])]
+        visible = [i for i in iids if self._matches_filter(self.devices[i], i)]
         shown = set(visible)
         hidden_now = {i for i in iids if i not in shown}
         for iid in hidden_now - self._hidden:
@@ -1003,7 +1017,8 @@ class ScannerApp:
         self.var_errors_only.set(False)
         self.var_no_backup.set(False)
         for var in (self.var_changed_only, self.var_port_issue, self.var_weak_radio, self.var_favorites,
-                    self.var_confirmed, self.var_signal_show, self.var_new_only, self.var_radio_name_show):
+                    self.var_confirmed, self.var_signal_show, self.var_new_only, self.var_radio_name_show,
+                    self.var_checked_only):
             var.set(False)
         self.var_signal_limit.set("")
         self._signal_limit = None
@@ -1184,6 +1199,7 @@ class ScannerApp:
         if base is not None:
             dev.confirmed = list(base.confirmed)   # accepted problems stay accepted
         health.analyse(dev, base)
+        dev.status_time = datetime.now().strftime(STATUS_TIME_FORMAT)   # the scan/update moment
         if health.status_parts(dev):
             self._write_log(f"{dev.ip} ({dev.identity}): {dev.status}")   # the full text; the cell may be cut
         self._upsert_device(dev)
@@ -1228,6 +1244,7 @@ class ScannerApp:
     def _toggle_check(self, iid: str, shift: bool = False) -> None:
         """Click on a row's checkbox. With Shift: every visible row from the
         previously clicked checkbox to this one gets the state that one got."""
+        ranged = False
         if shift and self._anchor:
             visible = list(self.tree.get_children(""))
             if self._anchor[0] in visible and iid in visible:
@@ -1236,12 +1253,13 @@ class ScannerApp:
                 for other in visible[first:last + 1]:
                     self._set_checked(other, state)
                 self._anchor = (iid, state)
-                self._sync_header()
-                self._counts_dirty = True
-                return
-        state = iid not in self.checked
-        self._set_checked(iid, state)
-        self._anchor = (iid, state)
+                ranged = True
+        if not ranged:
+            state = iid not in self.checked
+            self._set_checked(iid, state)
+            self._anchor = (iid, state)
+        if self.var_checked_only.get():
+            self._relayout()   # the «Отмеченные» filter: a tick change shows/hides the row at once
         self._sync_header()
         self._counts_dirty = True
 
@@ -1859,6 +1877,7 @@ class ScannerApp:
                 dev.confirmed = sorted(set(dev.confirmed) | set(fresh))
                 if set(fresh) - {"new"}:   # accepting only «new» leaves the status as it is
                     dev.status = " | ".join(health.status_parts(dev)) or "Подтверждено"
+                    dev.status_time = datetime.now().strftime(STATUS_TIME_FORMAT)
             else:
                 if not dev.confirmed:
                     continue
@@ -1866,6 +1885,7 @@ class ScannerApp:
                 if had - {"new"}:
                     dev.status = " | ".join(health.status_parts(dev)) or (
                         "Ошибка (подробности в логе; «Обновить» — проверить снова)" if dev.failed else "OK")
+                    dev.status_time = datetime.now().strftime(STATUS_TIME_FORMAT)
             count += 1
             if self.tree.exists(iid):
                 self.tree.item(iid, values=self._row_values(dev), tags=self._row_tags(dev))
@@ -1901,6 +1921,8 @@ class ScannerApp:
         for iid in visible:
             self._set_checked(iid, select)
         self._anchor = None
+        if self.var_checked_only.get():
+            self._relayout()   # the «Отмеченные» filter: un-ticking hides the rows at once
         self._sync_header()
         self._counts_dirty = True
 

@@ -37,6 +37,7 @@ class Device:
     last_seen: str = ""
     last_backup: str = ""
     status: str = ""
+    status_time: str = ""  # when the status was recorded ("2026.11.02 14:05:15"); shown in front of it
     failed: bool = False  # the last operation on this device failed (row turns red)
     note: str = ""  # the operator's own comment, searchable
     # internal

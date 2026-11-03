@@ -1,5 +1,6 @@
 """
-One settings file next to the program: mt_config.json.
+One settings file next to the program: MikroTikTool.json (before it: mt_config.json,
+adopted on the first start of a version that knows the new name).
 
 Sections: "settings" (the connection fields, the password only with «Запомнить
 настройки»), "commands" (the 10 command drafts), "ui" (column widths / order),
@@ -24,7 +25,7 @@ from typing import Any, Dict, Optional
 
 
 def app_dir(module_file: str) -> str:
-    """The folder with the program's data (mt_config.json, Backups, winbox.exe): next to
+    """The folder with the program's data (MikroTikTool.json, Backups, winbox.exe): next to
     the .exe in a compiled build (the temporary folder a single-file .exe unpacks to
     would lose everything), next to the .py file otherwise."""
     if getattr(sys, "frozen", False):

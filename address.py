@@ -13,7 +13,7 @@ letters; this module turns them back into Russian:
 Everything before the address is dropped, as is a «(2)» at the end (it only tells
 the routers on one address apart). Latin letters do not say everything (ь, ё, э are
 lost), so a small dictionary of common words is built in, and the operator can add
-their own in mt_config.json, section "translit": {"ulyanova": "Ульянова"} (a whole
+their own in MikroTikTool.json, section "translit": {"ulyanova": "Ульянова"} (a whole
 word in lower case -> how it is written; used by both programs).
 
 No Tk here: this is unit tested headlessly.

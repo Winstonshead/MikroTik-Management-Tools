@@ -51,8 +51,13 @@ import icons
 from applog import setup_logging
 from core import Device, backup_filename, dedupe_devices, expand_targets, split_api_line
 
+VERSION = "1.23.261103"     # shown in the window title; the tail is the release date
+AUTHOR = "Winstonshead"
+
 APP_DIR = app_dir(__file__)
-CONFIG_FILE = os.path.join(APP_DIR, "mt_config.json")  # everything the program keeps (see store.py)
+CONFIG_FILE = os.path.join(APP_DIR, "MikroTikTool.json")  # everything the program keeps (see store.py)
+# the name before MikroTikTool.json: its contents are adopted on the first start
+OLD_CONFIG_FILE = os.path.join(APP_DIR, "mt_config.json")
 # the separate files of older versions: moved into CONFIG_FILE on the first start
 SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 COMMANDS_FILE = os.path.join(APP_DIR, "commands.json")
@@ -111,9 +116,11 @@ COMMAND_HINTS = {
 
 class ScannerApp:
     # mikrotik_viewer.py runs this same window without scanning, commands, logs and export;
-    # it keeps its own login and column settings in their own sections of mt_config.json
+    # it keeps its own login and column settings in their own sections of MikroTikTool.json
     VIEWER = False
-    TITLE = "Сканер MikroTik"
+    TITLE = f"MikroTik Admin Tool ({VERSION}) by {AUTHOR}"
+    ICON_TILE = (178, 34, 34)   # the admin tool's icon: a white M on a red tile
+    ICON_LED = icons.LED
     SETTINGS_SECTION = "settings"
     UI_SECTION = "ui"
 
@@ -126,8 +133,13 @@ class ScannerApp:
         self.logger, self.log_path = self._make_logger()
         self.store = ConfigStore(CONFIG_FILE, legacy={
             "settings": SETTINGS_FILE, "commands": COMMANDS_FILE, "devices": DEVICES_FILE, "ui": UI_FILE,
-        }, logger=self.logger, fallback=[os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                      "mt_config.json")])
+        }, logger=self.logger, fallback=[
+            # adopted on the first start: the old file name, and the copies a
+            # previous build may have kept inside its unpacked bundle
+            OLD_CONFIG_FILE,
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "MikroTikTool.json"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "mt_config.json"),
+        ])
 
         # runtime state
         self.ui_queue: "queue.Queue[tuple]" = queue.Queue()
@@ -546,9 +558,10 @@ class ScannerApp:
         self.root.geometry(f"{width}x820")
 
     def _set_app_icon(self) -> None:
-        """Window / taskbar icon: a white «M» on a router-blue tile, drawn in code."""
+        """Window / taskbar icon: a white «M» on the tool's tile, drawn in code."""
         try:
-            self._app_icons = [tk.PhotoImage(data=icons.app_icon(size)[2]) for size in (64, 32, 16)]
+            self._app_icons = [tk.PhotoImage(data=icons.app_icon(size, self.ICON_TILE, self.ICON_LED)[2])
+                               for size in (64, 32, 16)]
             self.root.iconphoto(True, *self._app_icons)
         except tk.TclError:
             pass   # an icon is cosmetic: never let it stop the program
@@ -1701,7 +1714,7 @@ class ScannerApp:
         return rows
 
     def _translit_words(self) -> dict:
-        """The operator's own spellings (mt_config.json, "translit"), for address.py."""
+        """The operator's own spellings (MikroTikTool.json, "translit"), for address.py."""
         words = self.store.get("translit", {})
         return words if isinstance(words, dict) else {}
 

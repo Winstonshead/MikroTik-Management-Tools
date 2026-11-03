@@ -20,7 +20,8 @@ def _open():
 
     work = tempfile.mkdtemp()
     for name, fname in (("APP_DIR", ""), ("DEVICES_FILE", "devices.json"), ("UI_FILE", "ui.json"),
-                        ("COMMANDS_FILE", "commands.json"), ("CONFIG_FILE", "mt_config.json"),
+                        ("COMMANDS_FILE", "commands.json"), ("CONFIG_FILE", "MikroTikTool.json"),
+                        ("OLD_CONFIG_FILE", "mt_config.json"),
                         ("SETTINGS_FILE", "settings.json"), ("BACKUP_DIR", "Backups")):
         setattr(M, name, os.path.join(work, fname) if fname else work)
     os.makedirs(M.BACKUP_DIR)
@@ -35,7 +36,7 @@ def _open():
 
 
 def _saved(M, section, default=None):
-    """What the program keeps in mt_config.json."""
+    """What the program keeps in MikroTikTool.json."""
     with open(M.CONFIG_FILE, encoding="utf-8") as fh:
         return json.load(fh).get(section, default)
 
@@ -1003,7 +1004,7 @@ def test_gui_everything_the_user_sees_is_in_russian():
         english = [t for t in texts if re.search(r"[A-Za-z]{3,}", t) and t not in kept
                    and not t.startswith(("SSH:", "API/SSL:", "Порт API-SSL:", "Лог: logs/"))]
         assert english == [], english
-        assert app.root.title() == "Сканер MikroTik"
+        assert app.root.title() == f"MikroTik Admin Tool ({M.VERSION}) by Winstonshead"
     finally:
         app._on_close()
 
@@ -1436,7 +1437,22 @@ def test_gui_old_separate_files_move_into_one_config_file():
         assert app2._networks() == ["10.20.30.0/24"]
         for old in (M.DEVICES_FILE, M.SETTINGS_FILE, M.UI_FILE, M.COMMANDS_FILE):
             assert not os.path.exists(old), old
-        assert sorted(f for f in os.listdir(M.APP_DIR) if f.endswith(".json")) == ["mt_config.json"]
+        assert sorted(f for f in os.listdir(M.APP_DIR) if f.endswith(".json")) == ["MikroTikTool.json"]
+    finally:
+        app2._on_close()
+
+
+def test_gui_the_old_config_file_name_is_adopted():
+    M, tk, root, app = _open()
+    app._on_close()
+    os.remove(M.CONFIG_FILE)
+    with open(M.OLD_CONFIG_FILE, "w", encoding="utf-8") as fh:
+        json.dump({"settings": {"user": "old-admin", "save": True}}, fh)
+    app2 = M.ScannerApp(tk.Tk())
+    try:
+        assert app2.var_user.get() == "old-admin"     # read from mt_config.json
+        assert os.path.exists(M.CONFIG_FILE)          # copied to MikroTikTool.json
+        assert os.path.exists(M.OLD_CONFIG_FILE)      # the old file itself is left alone
     finally:
         app2._on_close()
 
@@ -1667,7 +1683,7 @@ def test_viewer_has_only_the_allowed_controls_and_keeps_its_own_settings():
     root2 = tk.Tk()
     viewer = V.ViewerApp(root2)
     try:
-        assert root2.title() == "Просмотр MikroTik" and viewer.VIEWER
+        assert root2.title() == f"MikroTik Support Tool ({M.VERSION}) by Winstonshead" and viewer.VIEWER
         assert viewer.devices["S1"].identity == "CP_Natashi_Kovshovoy_29"       # the same data
         assert viewer.var_user.get() == "" and viewer.var_pass.get() == ""      # but not the scanner's login
         assert not viewer.command_editors and viewer.notebook is None

@@ -9,3 +9,8 @@ logs/
 commands.json
 mt_config.json
 *.broken
+MikroTikTool.json
+dist/
+build/
+*.spec
+build_icons/
